@@ -189,4 +189,8 @@ public interface StatsDClient {
      */
     void time(String aspect, long value);
 
+    /**
+     * Send all the messages in send buffer.
+     */
+    void send();
 }

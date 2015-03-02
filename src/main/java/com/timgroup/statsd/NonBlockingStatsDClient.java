@@ -3,6 +3,8 @@ package com.timgroup.statsd;
 import java.nio.charset.Charset;
 import java.text.NumberFormat;
 import java.util.Locale;
+import java.util.Timer;
+import java.util.TimerTask;
 
 /**
  * A simple StatsD client implementation facilitating metrics recording.
@@ -40,6 +42,8 @@ public final class NonBlockingStatsDClient extends ConvenienceMethodProvidingSta
 
     private final String prefix;
     private final NonBlockingUdpSender sender;
+    private Timer timer = new Timer();
+    private StringBuffer senderBuffer = new StringBuffer();
 
     /**
      * Create a new StatsD client communicating with a StatsD instance on the
@@ -97,11 +101,34 @@ public final class NonBlockingStatsDClient extends ConvenienceMethodProvidingSta
     }
 
     /**
-     * Cleanly shut down this StatsD client. This method may throw an exception if
-     * the socket cannot be closed.
+     * Begin to send all the messages in the send buffer to the server periodically.
+     * @param interval
+     *     the messages will be sent every Interval microseconds
+     */
+    public void startAutoSend(int interval) {
+        timer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                send();
+            }
+        }, 1 * 1000, interval);
+    }
+
+    /**
+     * Stop sending messages automatically
+     */
+    public void stopAutoSend() {
+        timer.cancel();
+    }
+
+    /**
+     * Cleanly shut down this StatsD client.
+     * This method will send the messages in send buffer.
+     * This method may throw an exception if the socket cannot be closed.
      */
     @Override
     public void stop() {
+        send();
         sender.stop();
     }
 
@@ -120,7 +147,7 @@ public final class NonBlockingStatsDClient extends ConvenienceMethodProvidingSta
      */
     @Override
     public void count(String aspect, long delta, double sampleRate) {
-        send(messageFor(aspect, Long.toString(delta), "c", sampleRate));
+        record(messageFor(aspect, Long.toString(delta), "c", sampleRate));
     }
 
     /**
@@ -159,7 +186,7 @@ public final class NonBlockingStatsDClient extends ConvenienceMethodProvidingSta
             message.append(messageFor(aspect, "0", "g")).append('\n');
         }
         message.append(messageFor(aspect, (delta && !negative) ? ("+" + value) : value, "g"));
-        send(message.toString());
+        record(message.toString());
     }
 
     /**
@@ -175,7 +202,7 @@ public final class NonBlockingStatsDClient extends ConvenienceMethodProvidingSta
      */
     @Override
     public void recordSetEvent(String aspect, String eventName) {
-        send(messageFor(aspect, eventName, "s"));
+        record(messageFor(aspect, eventName, "s"));
     }
 
     /**
@@ -190,7 +217,18 @@ public final class NonBlockingStatsDClient extends ConvenienceMethodProvidingSta
      */
     @Override
     public void recordExecutionTime(String aspect, long timeInMs, double sampleRate) {
-        send(messageFor(aspect, Long.toString(timeInMs), "ms", sampleRate));
+        record(messageFor(aspect, Long.toString(timeInMs), "ms", sampleRate));
+    }
+
+    /**
+     * Send all the messages in send buffer.
+     */
+    public void send() {
+        if (senderBuffer.length() == 0) {
+            return;
+        }
+        sender.send(senderBuffer.toString());
+        senderBuffer.delete(0, senderBuffer.length());
     }
 
     private String messageFor(String aspect, String value, String type) {
@@ -204,8 +242,8 @@ public final class NonBlockingStatsDClient extends ConvenienceMethodProvidingSta
                 : (message + "|@" + stringValueOf(sampleRate));
     }
 
-    private void send(final String message) {
-        sender.send(message);
+    private void record(final String message) {
+        senderBuffer.append(message).append("\n");
     }
 
     private String stringValueOf(double value) {
