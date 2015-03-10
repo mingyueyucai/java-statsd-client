@@ -44,6 +44,8 @@ public final class NonBlockingStatsDClient extends ConvenienceMethodProvidingSta
     private final NonBlockingUdpSender sender;
     private Timer timer = new Timer();
     private StringBuffer senderBuffer = new StringBuffer();
+    private int maxRecordNum = 16;
+    private int senderBufferCounter = 0;
 
     /**
      * Create a new StatsD client communicating with a StatsD instance on the
@@ -229,6 +231,7 @@ public final class NonBlockingStatsDClient extends ConvenienceMethodProvidingSta
         }
         sender.send(senderBuffer.toString());
         senderBuffer.delete(0, senderBuffer.length());
+        senderBufferCounter = 0;
     }
 
     private String messageFor(String aspect, String value, String type) {
@@ -244,6 +247,10 @@ public final class NonBlockingStatsDClient extends ConvenienceMethodProvidingSta
 
     private void record(final String message) {
         senderBuffer.append(message).append("\n");
+        senderBufferCounter++;
+        if (senderBufferCounter >= maxRecordNum) {
+            send();
+        }
     }
 
     private String stringValueOf(double value) {
